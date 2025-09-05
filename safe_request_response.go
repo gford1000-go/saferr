@@ -49,7 +49,7 @@ func (r *requestor[T, U]) Send(ctx context.Context, t *T) (*U, error) {
 		return nil, ErrContextCompleted
 	default:
 		if r.isClosed() {
-			return nil, ErrSenderIsClosed
+			return nil, ErrRequestorIsClosed
 		}
 		return r.attemptSend(t)
 	}
@@ -59,11 +59,15 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 	defer func() {
 		if rc := recover(); rc != nil {
 			u = nil
-			err = fmt.Errorf("%w: %v", ErrUncaughtSenderPanic, rc)
+			err = fmt.Errorf("%w: %v", ErrUncaughtSendPanic, rc)
 		}
 	}()
 
 	ch := make(chan *resp[U])
+
+	// Deferred close of the resp chan means that there is a possibility via
+	// timeout that the Responder attempts to send to this chan after it has closed.
+	// Hence the trap for panic in Responder.sendResp(), which discards the resp.
 	defer close(ch)
 
 	// The done chan read will return a zero when it is closed, signalling
@@ -121,7 +125,7 @@ func (r *responder[T, U]) ListenAndHandle(ctx context.Context, requestHandler Ha
 		}
 		if r.isClosed() {
 			req.ch <- &resp[U]{
-				err: ErrReceiverIsClosed,
+				err: ErrResponderIsClosed,
 			}
 			return nil
 		}
@@ -141,7 +145,7 @@ func (r *responder[T, U]) Close() {
 func (r *responder[T, U]) sendResp(ch chan *resp[U], resp *resp[U]) {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("caught panic: %v", r)
+			fmt.Printf("caught panic - dropping resp: %v", r)
 		}
 	}()
 
