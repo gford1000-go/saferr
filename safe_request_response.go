@@ -100,19 +100,27 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 type responder[T any, U any] struct {
 	commsBase[T, U]
 	requestorGoneAwayTimeout time.Duration
-	timeSinceLastRequest     time.Duration
+	hasGoneAway              time.Time
 	once                     sync.Once
+	initialise               sync.Once
 }
 
 func (r *responder[T, U]) ListenAndHandle(ctx context.Context, requestHandler Handler[T, U]) error {
+	// Initialise the hasGoneAway time the first time ListenAndHandle is called
+	// allowing for other work to be done in the goroutine before the first request is handled
+	r.initialise.Do(func() {
+		r.hasGoneAway = time.Now().Add(r.requestorGoneAwayTimeout)
+	})
+
+	// Note: The caller is expected to loop on ListenAndHandle() from a single goroutine only
+	//       This is NOT thread safe if called from multiple goroutines, nor is request sequencing guaranteed
 	select {
 	case <-time.After(r.timeout):
-		r.timeSinceLastRequest += r.timeout
-		if r.timeSinceLastRequest < r.requestorGoneAwayTimeout {
-			return nil
+		if time.Now().After(r.hasGoneAway) {
+			r.setClosed()
+			return ErrRequestorGoneAway
 		}
-		r.setClosed()
-		return ErrRequestorGoneAway
+		return nil
 	case <-r.ctx.Done():
 		r.setClosed()
 		return ErrContextCompleted
@@ -129,7 +137,7 @@ func (r *responder[T, U]) ListenAndHandle(ctx context.Context, requestHandler Ha
 			}
 			return nil
 		}
-		r.timeSinceLastRequest = 0
+		r.hasGoneAway = time.Now().Add(r.requestorGoneAwayTimeout) // Reset the gone away timer
 		return r.handle(ctx, requestHandler, req)
 	}
 }
