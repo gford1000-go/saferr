@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-func ExampleNewComms() {
+func ExampleNew() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	requestor, receiver := NewComms[int, float64](ctx)
+	requestor, receiver := New[int, float64](ctx)
 
 	go func() {
 
@@ -39,7 +39,7 @@ func ExampleNewComms() {
 	// Output: 0.25
 }
 
-func ExampleNewComms_withStruct() {
+func ExampleNew_withStruct() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -50,7 +50,7 @@ func ExampleNewComms_withStruct() {
 		reciprical float64
 	}
 
-	requestor, receiver := NewComms[int, results](ctx)
+	requestor, receiver := New[int, results](ctx)
 
 	go func() {
 
@@ -85,7 +85,7 @@ func TestNewComms(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	requestor, receiver := NewComms[int, int](ctx,
+	requestor, receiver := New[int, int](ctx,
 		WithRequestorTimeout(150*time.Millisecond))
 
 	// This test simulates what should happen if the receiver is closed
@@ -116,7 +116,7 @@ func TestNewComms_1(t *testing.T) {
 	// The test goroutine will sleep to make it look like it has gone away, and then attempt to send a request
 	// which will fail, as the chan has been closed by the receiver.
 
-	requestor, receiver := NewComms[int, int](ctx,
+	requestor, receiver := New[int, int](ctx,
 		WithRequestorGoneWayTimeout(500*time.Millisecond),
 		WithResponderTimeout(100*time.Millisecond),
 		WithRequestorTimeout(150*time.Millisecond))
@@ -159,7 +159,7 @@ func TestNewComms_2(t *testing.T) {
 	childCtx, childCancel := context.WithCancel(ctx)
 
 	// Here we set a short timeout on the requestor so the test runs quickly
-	requestor, receiver := NewComms[int, int](ctx,
+	requestor, receiver := New[int, int](ctx,
 		WithRequestorTimeout(120*time.Millisecond))
 
 	go func() {
@@ -198,7 +198,7 @@ func TestNewComms_3(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	requestor, receiver := NewComms[int, int](ctx)
+	requestor, receiver := New[int, int](ctx)
 
 	go func() {
 
@@ -235,7 +235,7 @@ func TestNewComms_4(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	requestor, receiver := NewComms[int, int](ctx)
+	requestor, receiver := New[int, int](ctx)
 
 	go func() {
 

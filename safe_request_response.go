@@ -227,9 +227,9 @@ func WithRequestorGoneWayTimeout(d time.Duration) func(*Options) {
 	}
 }
 
-// NewComms returns a Requestor and Responder pair, that have a dedicated communication channel
+// New returns a Requestor and Responder pair, that have a dedicated communication channel
 // that passes requests containing *T and responses containing *U.
-func NewComms[T any, U any](ctx context.Context, opts ...func(*Options)) (Requestor[T, U], Responder[T, U]) {
+func New[T any, U any](ctx context.Context, opts ...func(*Options)) (Requestor[T, U], Responder[T, U]) {
 	var o Options = defaults
 	for _, f := range opts {
 		f(&o)
