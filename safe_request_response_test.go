@@ -17,6 +17,7 @@ func ExampleNew() {
 	requestor, receiver := New[int, float64](ctx)
 
 	go func() {
+		defer receiver.Close()
 
 		reciprical := func(ctx context.Context, input *int) (*float64, error) {
 			var result float64 = math.Round(100/float64(*input)) / 100
@@ -53,6 +54,7 @@ func ExampleNew_withStruct() {
 	requestor, receiver := New[int, results](ctx)
 
 	go func() {
+		defer receiver.Close()
 
 		calc := func(ctx context.Context, input *int) (*results, error) {
 			v := float64(*input)
@@ -101,6 +103,7 @@ func ExampleNew_withMultiplex() {
 	requestor, receiver := New[input, int](ctx)
 
 	go func() {
+		defer receiver.Close()
 
 		calc := func(ctx context.Context, input *input) (*int, error) {
 			var result int
