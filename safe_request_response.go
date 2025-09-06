@@ -91,9 +91,14 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 			// This could mean that a Send() could block indefinitely trying to write to r.ch
 			// even though the Responder has closed.
 			// Retrying should detect done has closed, and so return an error
+			//
+			// Alternatively, the Responder could be very slow to respond,
+			// and so the Send() could be blocked trying to write to r.ch
+			// even though the Responder is taking a long time to respond.
+			// Hence don't call setClosed() as this might be a temporary condition
 			attempts++
 			if attempts >= maxAttempts {
-				return nil, ErrCommsChannelIsClosed
+				return nil, ErrUnableToSendRequest
 			}
 		}
 	}

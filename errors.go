@@ -25,3 +25,6 @@ var ErrUncaughtSendPanic = errors.New("recovered panic during send")
 
 // ErrRequestorGoneAway returned when the Responder decides that its Requestor has gone
 var ErrRequestorGoneAway = errors.New("requestor gone away")
+
+// ErrUnableToSendRequest returned when a request cannot be sent after multiple attempts
+var ErrUnableToSendRequest = errors.New("unable to send request")
