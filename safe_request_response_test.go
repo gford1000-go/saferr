@@ -80,6 +80,71 @@ func ExampleNew_withStruct() {
 	// Output: {16 64 0.25}
 }
 
+func ExampleNew_withMultiplex() {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	type choice int
+	const (
+		square choice = iota
+		cube
+	)
+
+	type input struct {
+		value  int
+		choice choice
+	}
+
+	// Since the types used in New[T, U] are arbitrary, multiplexing can be done by using a struct
+	// which also ensures a more robust contract between the requestor and responder
+	requestor, receiver := New[input, int](ctx)
+
+	go func() {
+
+		calc := func(ctx context.Context, input *input) (*int, error) {
+			var result int
+			switch input.choice {
+			case square:
+				result = input.value * input.value
+			case cube:
+				result = input.value * input.value * input.value
+			default:
+				return nil, fmt.Errorf("unknown choice: %d", input.choice)
+			}
+			return &result, nil
+		}
+
+		var err error
+		for err == nil {
+			err = receiver.ListenAndHandle(ctx, calc)
+		}
+	}()
+
+	inputs := []*input{
+		{
+			value:  4,
+			choice: square,
+		},
+		{
+			value:  4,
+			choice: cube,
+		},
+	}
+
+	for _, input := range inputs {
+		if response, err := requestor.Send(ctx, input); err != nil {
+			fmt.Println(err)
+		} else {
+			fmt.Println(*response)
+		}
+	}
+
+	// Output:
+	// 16
+	// 64
+}
+
 func TestNewComms(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
