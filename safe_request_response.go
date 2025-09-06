@@ -70,25 +70,38 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 	// Hence the trap for panic in Responder.sendResp(), which discards the resp.
 	defer close(ch)
 
-	// The done chan read will return a zero when it is closed, signalling
-	// that the Responder has closed and will not reply
-	// Note that there is a small possibility that the r.ch will block if its buffer is full,
-	// i.e. if the Requestor is making many concurrent requests.
-	// So make sure that this is ChanSize is set to a reasonable level (default = 100)
-	select {
-	case <-r.done:
-		r.setClosed()
-		return nil, ErrCommsChannelIsClosed
-	case r.ch <- &req[T, U]{
-		data: t,
-		ch:   ch,
-	}:
+	retry := true
+	attempts := 0
+	maxAttempts := 3
+	for retry {
+		select {
+		case <-r.done:
+			// The done chan read will return a zero when it is closed, signalling
+			// that the Responder has closed and will not reply
+			r.setClosed()
+			return nil, ErrCommsChannelIsClosed
+		case r.ch <- &req[T, U]{
+			data: t,
+			ch:   ch,
+		}:
+			retry = false // only put on r.ch once
+		case <-time.After(100 * time.Microsecond):
+			// There is a possibility that a large number of concurrent Send() calls
+			// could fill up r.ch before the done chan is closed.
+			// This could mean that a Send() could block indefinitely trying to write to r.ch
+			// even though the Responder has closed.
+			// Retrying should detect done has closed, and so return an error
+			attempts++
+			if attempts >= maxAttempts {
+				return nil, ErrCommsChannelIsClosed
+			}
+		}
 	}
 
 	// If here, then either:
 	// (a) the Responder exists and a response will be provided
 	// (b) the Responder has closed, but the request was sent before the done chan was closed,
-	//     in which case the Requestor will have to wait until their request is timed out
+	//     in which case the Requestor will now have to wait until their request is timed out
 	select {
 	case <-time.After(r.timeout):
 		return nil, ErrSendTimeout
