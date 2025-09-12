@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -411,4 +412,49 @@ func TestNewComms_4(t *testing.T) {
 			}
 		}
 	}
+}
+
+func BenchmarkNew(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	requestor, receiver := New[int, int](ctx)
+
+	go func() {
+		defer receiver.Close()
+
+		reflect := func(ctx context.Context, input *int) (*int, error) {
+			return input, nil
+		}
+
+		var err error
+		for err == nil {
+			err = receiver.ListenAndHandle(ctx, reflect)
+		}
+	}()
+
+	i := 42
+	p := 2
+	n := runtime.NumCPU()
+	fmt.Println("NumCPU = ", n, "RunParallel = ", p*n)
+
+	b.SetParallelism(p)
+	var wg sync.WaitGroup
+	wg.Add(p * n)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	b.RunParallel(func(pb *testing.PB) {
+		defer wg.Done()
+		for pb.Next() {
+			if response, err := requestor.Send(ctx, &i); err != nil {
+				b.Fatal(err)
+			} else if *response != i {
+				b.Fatalf("Unexpected response returned: %d when should be %d", *response, i)
+			}
+		}
+	})
+
+	wg.Wait()
 }

@@ -66,15 +66,18 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 	attempts := 0
 	maxAttempts := 3
 	for retry {
+		var err error
+		submitTimer := acquireTimer(100 * time.Microsecond)
+
 		select {
 		case <-r.done:
 			// The done chan read will return a zero when it is closed, signalling
 			// that the Responder has closed and will not reply
 			r.setClosed()
-			return nil, ErrCommsChannelIsClosed
+			err = ErrCommsChannelIsClosed
 		case r.ch <- req:
 			retry = false // only put the req onto the r.ch once
-		case <-time.After(100 * time.Microsecond):
+		case <-submitTimer.C:
 			// There is a possibility that a large number of concurrent Send() calls
 			// could fill up r.ch before the done chan is closed.
 			// This could mean that a Send() could block indefinitely trying to write to r.ch
@@ -87,8 +90,14 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 			// Hence don't call setClosed() as this might be a temporary condition
 			attempts++
 			if attempts >= maxAttempts {
-				return nil, ErrUnableToSendRequest
+				err = ErrUnableToSendRequest
 			}
+		}
+
+		releaseTimer(submitTimer)
+
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -96,8 +105,11 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 	// (a) the Responder exists and a response will be provided
 	// (b) the Responder has closed, but the request was sent before the done chan was closed,
 	//     in which case the Requestor will now have to wait until their request is timed out
+	responseTimer := acquireTimer(r.timeout)
+	defer releaseTimer(responseTimer)
+
 	select {
-	case <-time.After(r.timeout):
+	case <-responseTimer.C:
 		return nil, ErrSendTimeout
 	case resp := <-req.ch:
 		defer resp.close()
@@ -121,10 +133,13 @@ func (r *responder[T, U]) ListenAndHandle(ctx context.Context, requestHandler Ha
 		r.hasGoneAway = time.Now().Add(r.requestorGoneAwayTimeout)
 	})
 
+	listenTimer := acquireTimer(r.timeout)
+	defer releaseTimer(listenTimer)
+
 	// Note: The caller is expected to loop on ListenAndHandle() from a single goroutine only
 	//       This is NOT thread safe if called from multiple goroutines, nor is request sequencing guaranteed
 	select {
-	case <-time.After(r.timeout):
+	case <-listenTimer.C:
 		if time.Now().After(r.hasGoneAway) {
 			r.setClosed()
 			return ErrRequestorGoneAway
