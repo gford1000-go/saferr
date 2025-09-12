@@ -1,0 +1,43 @@
+package saferr
+
+import (
+	"fmt"
+	"sync"
+	"testing"
+)
+
+func TestNewReqPool(t *testing.T) {
+
+	p := newReqPool[int, int]()
+
+	var size = 10
+	var usages = 1000000
+	var errs = make([]error, size)
+
+	var wg sync.WaitGroup
+
+	for i := range size {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					errs[n] = fmt.Errorf("caught panic for %d: %v", n, r)
+				}
+			}()
+
+			for j := range usages {
+				r := p.Get(&j)
+				p.Put(r)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}

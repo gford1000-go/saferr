@@ -13,11 +13,6 @@ type resp[U any] struct {
 	err  error
 }
 
-type req[T any, U any] struct {
-	ch   chan *resp[U]
-	data *T
-}
-
 type commsBase[T any, U any] struct {
 	ch      chan *req[T, U]
 	done    chan struct{}
@@ -36,6 +31,7 @@ func (c *commsBase[T, U]) setClosed() {
 
 type requestor[T any, U any] struct {
 	commsBase[T, U]
+	pool *reqPool[T, U]
 }
 
 func (r *requestor[T, U]) Send(ctx context.Context, t *T) (*U, error) {
@@ -63,12 +59,13 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 		}
 	}()
 
-	ch := make(chan *resp[U])
+	// Get an initialised req[T, U] from the pool to reduce allocations
+	req := r.pool.Get(t)
 
-	// Deferred close of the resp chan means that there is a possibility via
-	// timeout that the Responder attempts to send to this chan after it has closed.
-	// Hence the trap for panic in Responder.sendResp(), which discards the resp.
-	defer close(ch)
+	// Deferred return of the req[T, U] (req) instance means that after a timeout
+	// for the Requestor, the Responder may attempt to send to its embedded chan after it has closed.
+	// Hence the trap for panic in Responder.sendResp(), which simply discards the resp.
+	defer r.pool.Put(req)
 
 	retry := true
 	attempts := 0
@@ -80,11 +77,8 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 			// that the Responder has closed and will not reply
 			r.setClosed()
 			return nil, ErrCommsChannelIsClosed
-		case r.ch <- &req[T, U]{
-			data: t,
-			ch:   ch,
-		}:
-			retry = false // only put on r.ch once
+		case r.ch <- req:
+			retry = false // only put the req onto the r.ch once
 		case <-time.After(100 * time.Microsecond):
 			// There is a possibility that a large number of concurrent Send() calls
 			// could fill up r.ch before the done chan is closed.
@@ -110,7 +104,7 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 	select {
 	case <-time.After(r.timeout):
 		return nil, ErrSendTimeout
-	case resp := <-ch:
+	case resp := <-req.ch:
 		return resp.data, resp.err
 	}
 }
@@ -187,9 +181,11 @@ func (r *responder[T, U]) handle(ctx context.Context, h Handler[T, U], req *req[
 		}
 	}()
 
+	ch := req.ch
+
 	u, err := h(ctx, req.data)
 
-	r.sendResp(req.ch, &resp[U]{
+	r.sendResp(ch, &resp[U]{
 		data: u,
 		err:  err,
 	})
@@ -271,6 +267,7 @@ func New[T any, U any](ctx context.Context, opts ...func(*Options)) (Requestor[T
 				ctx:     ctx,
 				timeout: o.RequestorTimeout,
 			},
+			pool: newReqPool[T, U](),
 		}, &responder[T, U]{
 			commsBase: commsBase[T, U]{
 				ch:      ch,
