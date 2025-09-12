@@ -8,11 +8,6 @@ import (
 	"time"
 )
 
-type resp[U any] struct {
-	data *U
-	err  error
-}
-
 type commsBase[T any, U any] struct {
 	ch      chan *req[T, U]
 	done    chan struct{}
@@ -105,6 +100,7 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 	case <-time.After(r.timeout):
 		return nil, ErrSendTimeout
 	case resp := <-req.ch:
+		defer resp.close()
 		return resp.data, resp.err
 	}
 }
@@ -115,6 +111,7 @@ type responder[T any, U any] struct {
 	hasGoneAway              time.Time
 	once                     sync.Once
 	initialise               sync.Once
+	pool                     *respPool[U]
 }
 
 func (r *responder[T, U]) ListenAndHandle(ctx context.Context, requestHandler Handler[T, U]) error {
@@ -144,9 +141,7 @@ func (r *responder[T, U]) ListenAndHandle(ctx context.Context, requestHandler Ha
 			return ErrCommsChannelIsClosed
 		}
 		if r.isClosed() {
-			req.ch <- &resp[U]{
-				err: ErrResponderIsClosed,
-			}
+			req.ch <- r.pool.Get(nil, ErrResponderIsClosed)
 			return nil
 		}
 		r.hasGoneAway = time.Now().Add(r.requestorGoneAwayTimeout) // Reset the gone away timer
@@ -166,6 +161,7 @@ func (r *responder[T, U]) sendResp(ch chan *resp[U], resp *resp[U]) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("caught panic - dropping resp: %v", r)
+			resp.close()
 		}
 	}()
 
@@ -175,20 +171,15 @@ func (r *responder[T, U]) sendResp(ch chan *resp[U], resp *resp[U]) {
 func (r *responder[T, U]) handle(ctx context.Context, h Handler[T, U], req *req[T, U]) error {
 	defer func() {
 		if rc := recover(); rc != nil {
-			r.sendResp(req.ch, &resp[U]{
-				err: fmt.Errorf("%w: %v", ErrUncaughtHandlerPanic, rc),
-			})
+			r.sendResp(req.ch, r.pool.Get(nil, fmt.Errorf("%w: %v", ErrUncaughtHandlerPanic, rc)))
 		}
 	}()
 
 	ch := req.ch
 
-	u, err := h(ctx, req.data)
+	resp := r.pool.Get(h(ctx, req.data))
 
-	r.sendResp(ch, &resp[U]{
-		data: u,
-		err:  err,
-	})
+	r.sendResp(ch, resp)
 
 	return nil
 }
@@ -275,6 +266,7 @@ func New[T any, U any](ctx context.Context, opts ...func(*Options)) (Requestor[T
 				ctx:     ctx,
 				timeout: o.ResponderTimeout,
 			},
+			pool:                     newRespPool[U](),
 			requestorGoneAwayTimeout: o.RequestorGoneAwayTimeout,
 		}
 }
