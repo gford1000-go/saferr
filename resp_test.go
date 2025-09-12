@@ -27,7 +27,7 @@ func TestNewRespPool(t *testing.T) {
 			}()
 
 			for i := range usages {
-				r := p.Get(&i, nil)
+				r := p.Get(12345, &i, nil)
 				r.close()
 			}
 		}(i)

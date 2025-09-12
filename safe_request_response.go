@@ -105,16 +105,30 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 	// (a) the Responder exists and a response will be provided
 	// (b) the Responder has closed, but the request was sent before the done chan was closed,
 	//     in which case the Requestor will now have to wait until their request is timed out
+	//
+	// Need to ensure ghost messages are captured and discarded.
+	// Also only allow the r.timeout duration to receive the correct resp for the req.
+	retry = true
 	responseTimer := acquireTimer(r.timeout)
 	defer releaseTimer(responseTimer)
 
-	select {
-	case <-responseTimer.C:
-		return nil, ErrSendTimeout
-	case resp := <-req.ch:
-		defer resp.close()
-		return resp.data, resp.err
+	var resp *resp[U]
+	for retry {
+		select {
+		case <-responseTimer.C:
+			return nil, ErrSendTimeout
+		case resp = <-req.ch:
+			if resp.id != req.id {
+				resp.close() // Not interested in this one; discard as Requestor timed out
+			} else {
+				retry = false // Have matched response
+			}
+		}
 	}
+
+	// Have a valid resp if we reach here
+	defer resp.close()
+	return resp.data, resp.err
 }
 
 type responder[T any, U any] struct {
@@ -156,7 +170,7 @@ func (r *responder[T, U]) ListenAndHandle(ctx context.Context, requestHandler Ha
 			return ErrCommsChannelIsClosed
 		}
 		if r.isClosed() {
-			req.ch <- r.pool.Get(nil, ErrResponderIsClosed)
+			req.ch <- r.pool.Get(req.id, nil, ErrResponderIsClosed)
 			return nil
 		}
 		r.hasGoneAway = time.Now().Add(r.requestorGoneAwayTimeout) // Reset the gone away timer
@@ -186,13 +200,14 @@ func (r *responder[T, U]) sendResp(ch chan *resp[U], resp *resp[U]) {
 func (r *responder[T, U]) handle(ctx context.Context, h Handler[T, U], req *req[T, U]) error {
 	defer func() {
 		if rc := recover(); rc != nil {
-			r.sendResp(req.ch, r.pool.Get(nil, fmt.Errorf("%w: %v", ErrUncaughtHandlerPanic, rc)))
+			r.sendResp(req.ch, r.pool.Get(req.id, nil, fmt.Errorf("%w: %v", ErrUncaughtHandlerPanic, rc)))
 		}
 	}()
 
 	ch := req.ch
 
-	resp := r.pool.Get(h(ctx, req.data))
+	u, err := h(ctx, req.data)
+	resp := r.pool.Get(req.id, u, err)
 
 	r.sendResp(ch, resp)
 

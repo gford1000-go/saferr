@@ -3,6 +3,7 @@ package saferr
 import "sync"
 
 type resp[U any] struct {
+	id   uint64
 	data *U
 	err  error
 	pool *respPool[U]
@@ -23,16 +24,16 @@ type respPool[U any] struct {
 
 // Get is a slight variance to idiomatic Go for sync.Pool,
 // returning fully initialised resp[U] instance
-func (p *respPool[U]) Get(u *U, err error) *resp[U] {
+func (p *respPool[U]) Get(id uint64, u *U, err error) *resp[U] {
 	r := p.pool.Get().(*resp[U])
 
-	r.data, r.err, r.pool = u, err, p
+	r.data, r.err, r.pool, r.id = u, err, p, id
 	return r
 }
 
 // Put ensures that the returned instance is reset before reuse
 func (p *respPool[U]) Put(x *resp[U]) {
-	x.data, x.err, x.pool = nil, nil, nil
+	x.data, x.err, x.pool, x.id = nil, nil, nil, 0
 	p.pool.Put(x)
 }
 

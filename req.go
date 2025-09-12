@@ -1,12 +1,33 @@
 package saferr
 
 import (
+	"math"
 	"sync"
 )
+
+var incrementer func() uint64
+
+func init() {
+	var counter uint64 = 1 // So that 0 indicates req.id is unset
+	var counterLck sync.Mutex
+
+	incrementer = func() uint64 {
+		counterLck.Lock()
+		defer counterLck.Unlock()
+
+		// Highly unlikely to wrap but protect just in case
+		if counter == math.MaxUint64 {
+			counter = 0
+		}
+		counter++
+		return counter
+	}
+}
 
 type req[T any, U any] struct {
 	ch   chan *resp[U]
 	data *T
+	id   uint64
 }
 
 // Since we expect a lot of traffic between Requestors and Responders,
@@ -23,7 +44,10 @@ func (p *reqPool[T, U]) Get(t *T) *req[T, U] {
 	// This is a blocking chan, forcing the Requestor goroutine to wait for its response from Responder
 	// Create a new chan each Get(), as this is lightweight and avoids a class of race condition errors
 	r.ch = make(chan *resp[U])
+
+	// Initialise with the data for the request, plus a unique id for that request
 	r.data = t
+	r.id = incrementer()
 	return r
 }
 
@@ -32,7 +56,7 @@ func (p *reqPool[T, U]) Put(x *req[T, U]) {
 	// Ensure reset of instance (including chan closing) before handing back to the pool
 	// Close is invoked to ensure a panic for a late replying Responder - otherwise it could block on the chan
 	close(x.ch)
-	x.data, x.ch = nil, nil
+	x.data, x.ch, x.id = nil, nil, 0
 	p.pool.Put(x)
 }
 
