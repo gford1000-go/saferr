@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"testing"
 	"time"
 )
@@ -38,6 +39,65 @@ func ExampleNew() {
 	}
 
 	// Output: 0.25
+}
+
+func ExampleNew_copySemantics() {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	requestor, receiver := New[string, string](ctx)
+
+	go func() {
+		defer receiver.Close()
+
+		reflect := func(ctx context.Context, input *string) (*string, error) {
+			return input, nil
+		}
+
+		var err error
+		for err == nil {
+			err = receiver.ListenAndHandle(ctx, reflect)
+		}
+	}()
+
+	// Having the same Requestor instance shared between multiple variables is allowed
+	// as New() returns an interface rather than a struct.
+	// The same is true for the Response instance returned by New()
+
+	// Create goroutines that concurrently interact with Responder with their own instance of Requestor
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			var newRequestor Requestor[string, string] = requestor
+
+			input := "Hello World"
+			if response, err := newRequestor.Send(ctx, &input); err != nil {
+				fmt.Println(err)
+			} else {
+				fmt.Println(*response)
+			}
+		}()
+	}
+	// Parent goroutine also concurrently interacts with the Responder
+	input := "Hello World"
+	if response, err := requestor.Send(ctx, &input); err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println(*response)
+	}
+	wg.Wait()
+
+	// Output:
+	// Hello World
+	// Hello World
+	// Hello World
+	// Hello World
+	// Hello World
+	// Hello World
 }
 
 func ExampleNew_withStruct() {
