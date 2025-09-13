@@ -583,7 +583,7 @@ func TestNewComms_4(t *testing.T) {
 	}
 }
 
-func BenchmarkNew(b *testing.B) {
+func BenchmarkGo_0(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -591,16 +591,37 @@ func BenchmarkNew(b *testing.B) {
 		return input, nil
 	}
 
+	i := 42
 	requestor := Go(ctx, reflect)
 
-	i := 42
-	p := 2
-	n := runtime.NumCPU()
-	fmt.Println("NumCPU = ", n, "RunParallel = ", p*n)
+	b.ResetTimer()
+	b.ReportAllocs()
 
-	b.SetParallelism(p)
+	for b.Loop() {
+		if response, err := requestor.Send(ctx, &i); err != nil {
+			b.Fatal(err)
+		} else if *response != i {
+			b.Fatalf("Unexpected response returned: %d when should be %d", *response, i)
+		}
+	}
+}
+
+func BenchmarkGo_1(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	reflect := func(ctx context.Context, input *int) (*int, error) {
+		return input, nil
+	}
+
+	i := 42
+	n := runtime.NumCPU()
+	fmt.Println("NumCPU = ", n)
+
+	requestor := Go(ctx, reflect, WithChanSize(n))
+
 	var wg sync.WaitGroup
-	wg.Add(p * n)
+	wg.Add(n)
 
 	b.ResetTimer()
 	b.ReportAllocs()
