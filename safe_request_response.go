@@ -2,7 +2,6 @@ package saferr
 
 import (
 	"context"
-	"time"
 )
 
 // New returns a Requestor and Responder pair, that have a dedicated communication channel
@@ -23,7 +22,12 @@ func New[T any, U any](ctx context.Context, opts ...func(*Options)) (Requestor[T
 				ctx:     ctx,
 				timeout: o.RequestorTimeout,
 			},
-			pool: newReqPool[T](newCorrelatedChanPool[U](5, 100*time.Millisecond, 10), getIncrementer()),
+			pool: newReqPool[T](
+				newCorrelatedChanPool[U](
+					o.CorrelatedChanRetries,
+					o.CorrelatedChanAddTimeout,
+					o.CorrelatedChanSize),
+				getIncrementer()),
 		}, &responder[T, U]{
 			commsBase: commsBase[T, U]{
 				ch:      ch,

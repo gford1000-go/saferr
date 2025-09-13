@@ -27,6 +27,15 @@ type Options struct {
 	// If this returns an error, then the go routine exits with no further call to ListenAndHandle().
 	// If ListenAndHandle() returns due to an error, GoPostListen will not be called.
 	GoPostListen func(context.Context) error
+	// CorrelatedChanSize sets the size of the buffer for chan that the Responder places resp[U] onto.
+	CorrelatedChanSize int
+	// CorrelatedChanRetries sets the number of times the correlatedChan will attempt to add a valid resp[U]
+	// onto the Requestor chan, before assuming the Requestor has gone away and discarding
+	CorrelatedChanRetries int
+	// CorrelatedChanAddTimeout sets the duration that the correlationChan will wait for the Requestor to
+	// receive the resp[U] on the Requestor chan, before timing out.  This is typically small, as the
+	// Requestor should be blocked to receive the resp[U].
+	CorrelatedChanAddTimeout time.Duration
 }
 
 var defaults Options = Options{
@@ -34,6 +43,9 @@ var defaults Options = Options{
 	RequestorGoneAwayTimeout: 2 * time.Minute,
 	ResponderTimeout:         1 * time.Second, // Expect the Responder to spin on a for { } loop
 	ChanSize:                 100,
+	CorrelatedChanSize:       10,
+	CorrelatedChanRetries:    5,
+	CorrelatedChanAddTimeout: 100 * time.Millisecond,
 }
 
 // WithChanSize sets the size of the communication buffer
@@ -91,5 +103,37 @@ func WithGoPostEnd(f func(error)) func(*Options) {
 func WithGoPostListen(f func(context.Context) error) func(*Options) {
 	return func(o *Options) {
 		o.GoPostListen = f
+	}
+}
+
+// WithCorrelatedChanSize sets the size of the buffer of the non-block chan *resp[U],
+// to which the Responder returns the result of the Handler call.  Default: 10
+func WithCorrelatedChanSize(size int) func(*Options) {
+	return func(o *Options) {
+		if size > defaults.CorrelatedChanSize {
+			o.CorrelatedChanSize = size
+		}
+	}
+}
+
+// WithCorrelatedChanRetries sets the number of retries that a correlatedChan[U] will
+// attempt, to transfer a valid resp[U] to its Requestor, before assuming that the
+// Requestor has gone away and discarding the resp[U].  Default: 5
+func WithCorrelatedChanRetries(retries int) func(*Options) {
+	return func(o *Options) {
+		if retries > defaults.CorrelatedChanRetries {
+			o.CorrelatedChanRetries = retries
+		}
+	}
+}
+
+// WithCorrelatedChanAddTimeout sets the timeout duration for retries for the correlatedChan,
+// as it is attempting to add the resp[U] onto the chan that its Requestor should be blocked on.
+// This timeout should be short, and hence is floored at 100ms and capped at 1min
+func WithCorrelatedChanAddTimeout(d time.Duration) func(*Options) {
+	return func(o *Options) {
+		if d > defaults.CorrelatedChanAddTimeout && d < time.Minute {
+			o.CorrelatedChanAddTimeout = d
+		}
 	}
 }
