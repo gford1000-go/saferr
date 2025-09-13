@@ -1,6 +1,9 @@
 package saferr
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Options holds the available options that can be set in the NewComms call
 type Options struct {
@@ -12,6 +15,18 @@ type Options struct {
 	ResponderTimeout time.Duration
 	// ChanSize sets the size of the communication buffer
 	ChanSize int
+	// GoPreStart called by Go() to initialise the Responder go routine prior to listening for requests.
+	// GoPreStart returns the context that be used by ListenAndServe().
+	// If GoPreStart returns an error then the go routine will exit immediately.
+	GoPreStart func(context.Context) (context.Context, error)
+	// GoPostEnd is invoked as a deferred call by Go() to support clean up of the Responder go routine on exit
+	// If exit is triggered by an error from ListenAndServe(), this hook receives the error.
+	GoPostEnd func(err error)
+	// GoPostListen is called after ListenAndHandle() exits due to a timeout, allowing the Go() Responder
+	// go routine to perform other tasks whilst waiting for a request.
+	// If this returns an error, then the go routine exits with no further call to ListenAndHandle().
+	// If ListenAndHandle() returns due to an error, GoPostListen will not be called.
+	GoPostListen func(context.Context) error
 }
 
 var defaults Options = Options{
@@ -55,5 +70,26 @@ func WithRequestorGoneWayTimeout(d time.Duration) func(*Options) {
 		if d > 0 {
 			o.RequestorGoneAwayTimeout = d
 		}
+	}
+}
+
+// WithGoPreStart allows the PreStart hook to be set in a call to Go()
+func WithGoPreStart(f func(context.Context) (context.Context, error)) func(*Options) {
+	return func(o *Options) {
+		o.GoPreStart = f
+	}
+}
+
+// WithGoPostEnd allows the PostEnd hook to be set in a call to Go()
+func WithGoPostEnd(f func(error)) func(*Options) {
+	return func(o *Options) {
+		o.GoPostEnd = f
+	}
+}
+
+// WithGoPostListen allows the PostListen hook to be set in a call to Go()
+func WithGoPostListen(f func(context.Context) error) func(*Options) {
+	return func(o *Options) {
+		o.GoPostListen = f
 	}
 }

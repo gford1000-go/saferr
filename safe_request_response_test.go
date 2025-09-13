@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -207,6 +208,174 @@ func ExampleNew_withMultiplex() {
 	// Output:
 	// 16
 	// 64
+}
+
+func ExampleGo() {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	reciprical := func(ctx context.Context, input *int) (*float64, error) {
+		var result float64 = math.Round(100/float64(*input)) / 100
+		return &result, nil
+	}
+
+	requestor := Go(ctx, reciprical)
+
+	input := 4
+	if response, err := requestor.Send(ctx, &input); err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println(*response)
+	}
+
+	// Output: 0.25
+}
+
+func ExampleGo_withStruct() {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	type results struct {
+		square     float64
+		cube       float64
+		reciprical float64
+	}
+
+	calc := func(ctx context.Context, input *int) (*results, error) {
+		v := float64(*input)
+		result := results{
+			square:     v * v,
+			cube:       v * v * v,
+			reciprical: math.Round(100/v) / 100,
+		}
+		return &result, nil
+	}
+
+	requestor := Go(ctx, calc)
+
+	input := 4
+	if response, err := requestor.Send(ctx, &input); err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println(*response)
+	}
+
+	// Output: {16 64 0.25}
+}
+
+func ExampleGo_withMultiplex() {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Since the types used in New[T, U] are arbitrary, multiplexing can be done by using a struct
+	// which also ensures a more robust contract between the requestor and responder
+
+	type choice int
+	const (
+		square choice = iota
+		cube
+	)
+
+	type input struct {
+		value  int
+		choice choice
+	}
+
+	calc := func(ctx context.Context, input *input) (*int, error) {
+		var result int
+		switch input.choice {
+		case square:
+			result = input.value * input.value
+		case cube:
+			result = input.value * input.value * input.value
+		default:
+			return nil, fmt.Errorf("unknown choice: %d", input.choice)
+		}
+		return &result, nil
+	}
+
+	requestor := Go(ctx, calc)
+
+	inputs := []*input{
+		{
+			value:  4,
+			choice: square,
+		},
+		{
+			value:  4,
+			choice: cube,
+		},
+	}
+
+	for _, input := range inputs {
+		if response, err := requestor.Send(ctx, input); err != nil {
+			fmt.Println(err)
+		} else {
+			fmt.Println(*response)
+		}
+	}
+
+	// Output:
+	// 16
+	// 64
+}
+
+func ExampleGo_withHooks() {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	reciprical := func(ctx context.Context, input *int) (*float64, error) {
+		var result float64 = math.Round(100/float64(*input)) / 100
+		return &result, nil
+	}
+
+	// Builder is used to capture messages across all goroutines, as this isn't
+	// natively provided via fmt.Println() for Example tests.
+	// Unfortunately Builder isn't threadsafe, so need to create threadsafe reader/writer funcs.
+	var sb strings.Builder
+	var lck sync.Mutex
+	write := func(s string) {
+		lck.Lock()
+		defer lck.Unlock()
+		sb.WriteString(s)
+	}
+	read := func() string {
+		lck.Lock()
+		defer lck.Unlock()
+		return sb.String()
+	}
+
+	requestor := Go(ctx, reciprical,
+		WithResponderTimeout(10*time.Millisecond),         // Duration before ListenAndServe() will exit
+		WithRequestorGoneWayTimeout(250*time.Millisecond), // Duration between requests before Responder believes Requestor has gone
+		WithGoPreStart(func(ctx context.Context) (context.Context, error) {
+			write("In PreStart\n")
+			return ctx, nil
+		}),
+		WithGoPostEnd(func(err error) {
+			write("In PostEnd")
+		}))
+
+	input := 4
+	if response, err := requestor.Send(ctx, &input); err != nil {
+		write(fmt.Sprintf("%v", err))
+	} else {
+		write(fmt.Sprintf("%v\n", *response))
+	}
+
+	// Pause to allow Go()'s goroutine to exit and demonstrate PostEnd being called
+	<-time.After(300 * time.Millisecond)
+
+	fmt.Println(read())
+
+	// Output:
+	// In PreStart
+	// 0.25
+	// In PostEnd
 }
 
 func TestNewComms(t *testing.T) {
@@ -418,20 +587,11 @@ func BenchmarkNew(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	requestor, receiver := New[int, int](ctx)
+	reflect := func(ctx context.Context, input *int) (*int, error) {
+		return input, nil
+	}
 
-	go func() {
-		defer receiver.Close()
-
-		reflect := func(ctx context.Context, input *int) (*int, error) {
-			return input, nil
-		}
-
-		var err error
-		for err == nil {
-			err = receiver.ListenAndHandle(ctx, reflect)
-		}
-	}()
+	requestor := Go(ctx, reflect)
 
 	i := 42
 	p := 2
