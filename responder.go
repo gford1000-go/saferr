@@ -74,16 +74,21 @@ func (r *responder[T, U]) sendResp(ch chan *resp[U], resp *resp[U]) {
 }
 
 func (r *responder[T, U]) handle(ctx context.Context, h Handler[T, U], req *req[T, U]) error {
+	// Copy the details of the request to local variables asap,
+	// since the handler could take arbitrarily long to complete, and so req
+	// may have been reset and added back to pool by the Requestor
+	// during that time, creating ghost behaviour
+	ch, id, t := req.ch, req.id, req.data
+
+	// Panic recovery uses local variables, again due to potential race condition outlined above
 	defer func() {
 		if rc := recover(); rc != nil {
-			r.sendResp(req.ch, r.pool.Get(req.id, nil, fmt.Errorf("%w: %v", ErrUncaughtHandlerPanic, rc)))
+			r.sendResp(ch, r.pool.Get(id, nil, fmt.Errorf("%w: %v", ErrUncaughtHandlerPanic, rc)))
 		}
 	}()
 
-	ch := req.ch
-
-	u, err := h(ctx, req.data)
-	resp := r.pool.Get(req.id, u, err)
+	u, err := h(ctx, t)
+	resp := r.pool.Get(id, u, err)
 
 	r.sendResp(ch, resp)
 
