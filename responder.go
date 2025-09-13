@@ -46,7 +46,7 @@ func (r *responder[T, U]) ListenAndHandle(ctx context.Context, requestHandler Ha
 			return ErrCommsChannelIsClosed
 		}
 		if r.isClosed() {
-			req.ch <- r.pool.Get(req.id, nil, ErrResponderIsClosed)
+			req.c.send(r.pool.Get(req.id, nil, ErrResponderIsClosed))
 			return nil
 		}
 		r.hasGoneAway = time.Now().Add(r.requestorGoneAwayTimeout) // Reset the gone away timer
@@ -62,7 +62,7 @@ func (r *responder[T, U]) Close() {
 	})
 }
 
-func (r *responder[T, U]) sendResp(ch chan *resp[U], resp *resp[U]) {
+func (r *responder[T, U]) sendResp(c *correlatedChan[U], resp *resp[U]) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("caught panic - dropping resp: %v", r)
@@ -70,7 +70,7 @@ func (r *responder[T, U]) sendResp(ch chan *resp[U], resp *resp[U]) {
 		}
 	}()
 
-	ch <- resp
+	c.send(resp)
 }
 
 func (r *responder[T, U]) handle(ctx context.Context, h Handler[T, U], req *req[T, U]) error {
@@ -78,19 +78,19 @@ func (r *responder[T, U]) handle(ctx context.Context, h Handler[T, U], req *req[
 	// since the handler could take arbitrarily long to complete, and so req
 	// may have been reset and added back to pool by the Requestor
 	// during that time, creating ghost behaviour
-	ch, id, t := req.ch, req.id, req.data
+	c, id, t := req.c, req.id, req.data
 
 	// Panic recovery uses local variables, again due to potential race condition outlined above
 	defer func() {
 		if rc := recover(); rc != nil {
-			r.sendResp(ch, r.pool.Get(id, nil, fmt.Errorf("%w: %v", ErrUncaughtHandlerPanic, rc)))
+			r.sendResp(c, r.pool.Get(id, nil, fmt.Errorf("%w: %v", ErrUncaughtHandlerPanic, rc)))
 		}
 	}()
 
 	u, err := h(ctx, t)
 	resp := r.pool.Get(id, u, err)
 
-	r.sendResp(ch, resp)
+	r.sendResp(c, resp)
 
 	return nil
 }

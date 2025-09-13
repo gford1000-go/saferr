@@ -25,7 +25,7 @@ func init() {
 }
 
 type req[T any, U any] struct {
-	ch   chan *resp[U]
+	c    *correlatedChan[U]
 	data *T
 	id   uint64
 }
@@ -33,7 +33,8 @@ type req[T any, U any] struct {
 // Since we expect a lot of traffic between Requestors and Responders,
 // use pools to minimise object creation
 type reqPool[T any, U any] struct {
-	pool sync.Pool
+	chanPool *correlatedChanPool[U]
+	pool     sync.Pool
 }
 
 // Get is a slight variance to idiomatic Go for sync.Pool,
@@ -41,27 +42,24 @@ type reqPool[T any, U any] struct {
 func (p *reqPool[T, U]) Get(t *T) *req[T, U] {
 	r := p.pool.Get().(*req[T, U])
 
-	// This is a blocking chan, forcing the Requestor goroutine to wait for its response from Responder
-	// Create a new chan each Get(), as this is lightweight and avoids a class of race condition errors
-	r.ch = make(chan *resp[U])
-
 	// Initialise with the data for the request, plus a unique id for that request
-	r.data = t
 	r.id = incrementer()
+	r.data = t
+	r.c = p.chanPool.Get(r.id)
 	return r
 }
 
 // Put ensures that the returned instance is reset before reuse
 func (p *reqPool[T, U]) Put(x *req[T, U]) {
 	// Ensure reset of instance (including chan closing) before handing back to the pool
-	// Close is invoked to ensure a panic for a late replying Responder - otherwise it could block on the chan
-	close(x.ch)
-	x.data, x.ch, x.id = nil, nil, 0
+	p.chanPool.pool.Put(x.c)
+	x.data, x.c, x.id = nil, nil, 0
 	p.pool.Put(x)
 }
 
-func newReqPool[T any, U any]() *reqPool[T, U] {
+func newReqPool[T any, U any](c *correlatedChanPool[U]) *reqPool[T, U] {
 	return &reqPool[T, U]{
+		chanPool: c,
 		pool: sync.Pool{
 			New: func() any {
 				var v any = new(req[T, U])

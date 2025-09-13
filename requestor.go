@@ -99,9 +99,11 @@ func (r *requestor[T, U]) attemptSend(t *T) (u *U, err error) {
 		select {
 		case <-responseTimer.C:
 			return nil, ErrSendTimeout
-		case resp = <-req.ch:
+		case resp = <-req.c.getReceiverChan():
 			if resp.id != req.id {
-				resp.close() // Not interested in this one; discard as Requestor timed out
+				// Double guard for ghost resps; discard as not the correct id
+				// Call close() to tidy its resources
+				resp.close()
 			} else {
 				retry = false // Have matched response
 			}

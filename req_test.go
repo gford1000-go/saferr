@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestNewReqPool(t *testing.T) {
 
-	p := newReqPool[int, int]()
+	cp := newCorrelatedChanPool[int](5, 100*time.Millisecond, 10)
+
+	p := newReqPool[int](cp)
 
 	var size = 10
 	var usages = 1000000

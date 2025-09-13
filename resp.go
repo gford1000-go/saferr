@@ -1,6 +1,8 @@
 package saferr
 
-import "sync"
+import (
+	"sync"
+)
 
 type resp[U any] struct {
 	id   uint64
