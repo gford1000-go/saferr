@@ -5,13 +5,11 @@ import (
 	"sync"
 )
 
-var incrementer func() uint64
-
-func init() {
+func getIncrementer() func() uint64 {
 	var counter uint64 = 1 // So that 0 indicates req.id is unset
 	var counterLck sync.Mutex
 
-	incrementer = func() uint64 {
+	return func() uint64 {
 		counterLck.Lock()
 		defer counterLck.Unlock()
 
@@ -33,8 +31,9 @@ type req[T any, U any] struct {
 // Since we expect a lot of traffic between Requestors and Responders,
 // use pools to minimise object creation
 type reqPool[T any, U any] struct {
-	chanPool *correlatedChanPool[U]
-	pool     sync.Pool
+	incrementer func() uint64
+	chanPool    *correlatedChanPool[U]
+	pool        sync.Pool
 }
 
 // Get is a slight variance to idiomatic Go for sync.Pool,
@@ -43,7 +42,7 @@ func (p *reqPool[T, U]) Get(t *T) *req[T, U] {
 	r := p.pool.Get().(*req[T, U])
 
 	// Initialise with the data for the request, plus a unique id for that request
-	r.id = incrementer()
+	r.id = p.incrementer()
 	r.data = t
 	r.c = p.chanPool.Get(r.id)
 	return r
@@ -57,9 +56,10 @@ func (p *reqPool[T, U]) Put(x *req[T, U]) {
 	p.pool.Put(x)
 }
 
-func newReqPool[T any, U any](c *correlatedChanPool[U]) *reqPool[T, U] {
+func newReqPool[T any, U any](c *correlatedChanPool[U], incrementer func() uint64) *reqPool[T, U] {
 	return &reqPool[T, U]{
-		chanPool: c,
+		incrementer: incrementer,
+		chanPool:    c,
 		pool: sync.Pool{
 			New: func() any {
 				var v any = new(req[T, U])

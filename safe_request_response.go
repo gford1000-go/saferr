@@ -23,7 +23,7 @@ func New[T any, U any](ctx context.Context, opts ...func(*Options)) (Requestor[T
 				ctx:     ctx,
 				timeout: o.RequestorTimeout,
 			},
-			pool: newReqPool[T](newCorrelatedChanPool[U](5, 100*time.Millisecond, 10)),
+			pool: newReqPool[T](newCorrelatedChanPool[U](5, 100*time.Millisecond, 10), getIncrementer()),
 		}, &responder[T, U]{
 			commsBase: commsBase[T, U]{
 				ch:      ch,

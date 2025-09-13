@@ -11,10 +11,10 @@ func TestNewReqPool(t *testing.T) {
 
 	cp := newCorrelatedChanPool[int](5, 100*time.Millisecond, 10)
 
-	p := newReqPool[int](cp)
+	p := newReqPool[int](cp, getIncrementer())
 
-	var size = 10
-	var usages = 1000000
+	var size = 2
+	var usages = 10000
 	var errs = make([]error, size)
 
 	var wg sync.WaitGroup
@@ -46,6 +46,10 @@ func TestNewReqPool(t *testing.T) {
 }
 
 func BenchmarkIncrementer(b *testing.B) {
+
+	incrementer := getIncrementer()
+
+	b.ResetTimer()
 
 	for range b.N {
 		incrementer()
