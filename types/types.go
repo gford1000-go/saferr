@@ -1,4 +1,4 @@
-package saferr
+package types
 
 import (
 	"context"
