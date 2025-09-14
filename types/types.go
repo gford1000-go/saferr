@@ -20,3 +20,11 @@ type Responder[T any, U any] interface {
 	// Close allows resources to be tidied away
 	Close()
 }
+
+// Request is a request issued by a Requestor, providing the key to the handler to be used
+// to process the supplied value of type T.
+type Request[T, M any, K comparable] struct {
+	Key  K
+	Meta M
+	Data *T
+}
