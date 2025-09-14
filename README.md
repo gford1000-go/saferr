@@ -21,19 +21,19 @@ This package has two primary functions, `New` and `Go`.
 
 ```go
 func main() {
-    ctx, cancel := context.WithCancel(context.Background())
-    defer cancel()
+  ctx, cancel := context.WithCancel(context.Background())
+  defer cancel()
 
-    reciprical := func(ctx context.Context, input *int) (*float64, error) {
-        var result float64 = math.Round(100/float64(*input)) / 100
-        return &result, nil
-    }
+  reciprical := func(ctx context.Context, input *int) (*float64, error) {
+      var result float64 = math.Round(100/float64(*input)) / 100
+      return &result, nil
+  }
 
-    requestor := Go(ctx, reciprical)
+  requestor := Go(ctx, reciprical)
 
-    input := 4
-    response, _ := requestor.Send(ctx, &input)
-    fmt.Println(*response) // 0.25
+  input := 4
+  response, _ := requestor.Send(ctx, &input)
+  fmt.Println(*response) // 0.25
 }
 ```
 
@@ -47,6 +47,43 @@ Check `Options` to see the full set of configuration available.
 ## Generics based
 
 Both `New` and `Go` support arbitrary types, provided that type instances are accessible as pointers.
+
+## Multiple Handler Support
+
+The `mux` structs provide a straightforward approach to declaring multiple `Handler` functions, with the 
+appropriate one invoked at run using `Key` matching, with the `Key` provided by the `Request` sent by the `Requestor`.
+
+`Key`s may be parameterised, with a separate `Resolver` being used to complete the `Key` to obtain the `Handler`, using
+metatdata information included in the `Request`.
+
+See below and the examples:
+
+```go
+func main() {
+  ctx, cancel := context.WithCancel(context.Background())
+  defer cancel()
+
+  mux := mux.NewHandler(nil,
+    &mux.Register[int, float64, string]{
+      Key: "math/square",
+      Handler: func(ctx context.Context, input *int) (*float64, error) {
+        var result float64 = float64(*input * *input)
+        return &result, nil
+      },
+    })
+
+  requestor := Go(ctx, mux.Handler)
+
+  i := 4
+  input := types.Request[int, string, string]{
+    Key:  "math/square",
+    Data: &i,
+  }
+
+  response, _ := requestor.Send(ctx, &input)
+  fmt.Println(*response) // 16
+}
+```
 
 ## Features
 
@@ -63,5 +100,10 @@ Both `New` and `Go` support arbitrary types, provided that type instances are ac
   * Overall (parent) context completed
   * `Responder` processing context completion
   * Per request context completion
+* Support for multiple `Handler`s mapped by resolvable `Key`s within `Request`s
+
+## Usage
+
+Install `saferr` by running `go get github.com/gford1000-go/saferr` from the command line.
 
 For more details, see the Examples.
