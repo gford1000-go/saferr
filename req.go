@@ -51,7 +51,7 @@ func (p *reqPool[T, U]) Get(t *T) *req[T, U] {
 // Put ensures that the returned instance is reset before reuse
 func (p *reqPool[T, U]) Put(x *req[T, U]) {
 	// Ensure reset of instance (including chan closing) before handing back to the pool
-	p.chanPool.pool.Put(x.c)
+	p.chanPool.Put(x.c)
 	x.data, x.c, x.id = nil, nil, 0
 	p.pool.Put(x)
 }

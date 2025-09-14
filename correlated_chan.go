@@ -83,29 +83,31 @@ func newCorrelatedChan[U any](maxRetries int, sendTimeout time.Duration, chanSiz
 }
 
 type correlatedChanPool[U any] struct {
-	pool sync.Pool
-}
-
-// Get is a slight variance to idiomatic Go for sync.Pool,
-// returning a correlatedChan instance set to handle only resp[U] with the specified id
-func (p *correlatedChanPool[U]) Get(id uint64) *correlatedChan[U] {
-	c := p.pool.Get().(*correlatedChan[U])
-	c.setId(id)
-	return c
-}
-
-// Put ensures that the returned instance is reset before reuse
-func (p *correlatedChanPool[U]) Put(c *correlatedChan[U]) {
-	c.setId(0)
-	p.pool.Put(c)
+	Get func(id uint64) *correlatedChan[U]
+	Put func(c *correlatedChan[U])
 }
 
 func newCorrelatedChanPool[U any](maxRetries int, sendTimeout time.Duration, chanSize int) *correlatedChanPool[U] {
-	return &correlatedChanPool[U]{
-		pool: sync.Pool{
-			New: func() any {
-				return newCorrelatedChan[U](maxRetries, sendTimeout, chanSize)
-			},
+
+	p := sync.Pool{
+		New: func() any {
+			return newCorrelatedChan[U](maxRetries, sendTimeout, chanSize)
 		},
+	}
+
+	getter := func(id uint64) *correlatedChan[U] {
+		c := p.Get().(*correlatedChan[U])
+		c.setId(id)
+		return c
+	}
+
+	putter := func(c *correlatedChan[U]) {
+		c.setId(0)
+		p.Put(c)
+	}
+
+	return &correlatedChanPool[U]{
+		Get: getter,
+		Put: putter,
 	}
 }
