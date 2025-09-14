@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gford1000-go/saferr/types"
 )
 
 func ExampleNew() {
@@ -74,7 +76,7 @@ func ExampleNew_copySemantics() {
 		go func() {
 			defer wg.Done()
 
-			var newRequestor Requestor[string, string] = requestor
+			var newRequestor types.Requestor[string, string] = requestor
 
 			input := "Hello World"
 			if response, err := newRequestor.Send(ctx, &input); err != nil {

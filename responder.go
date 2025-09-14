@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/gford1000-go/saferr/types"
 )
 
 type responder[T any, U any] struct {
@@ -16,7 +18,7 @@ type responder[T any, U any] struct {
 	pool                     *respPool[U]
 }
 
-func (r *responder[T, U]) ListenAndHandle(ctx context.Context, requestHandler Handler[T, U]) error {
+func (r *responder[T, U]) ListenAndHandle(ctx context.Context, requestHandler types.Handler[T, U]) error {
 	// Initialise the hasGoneAway time the first time ListenAndHandle is called
 	// allowing for other work to be done in the goroutine before the first request is handled
 	r.initialise.Do(func() {
@@ -73,7 +75,7 @@ func (r *responder[T, U]) sendResp(c *correlatedChan[U], resp *resp[U]) {
 	c.send(resp)
 }
 
-func (r *responder[T, U]) handle(ctx context.Context, h Handler[T, U], req *req[T, U]) error {
+func (r *responder[T, U]) handle(ctx context.Context, h types.Handler[T, U], req *req[T, U]) error {
 	// Copy the details of the request to local variables asap,
 	// since the handler could take arbitrarily long to complete, and so req
 	// may have been reset and added back to pool by the Requestor

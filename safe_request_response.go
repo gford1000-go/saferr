@@ -2,11 +2,13 @@ package saferr
 
 import (
 	"context"
+
+	"github.com/gford1000-go/saferr/types"
 )
 
 // New returns a Requestor and Responder pair, that have a dedicated communication channel
 // that passes requests containing *T and responses containing *U.
-func New[T any, U any](ctx context.Context, opts ...func(*Options)) (Requestor[T, U], Responder[T, U]) {
+func New[T any, U any](ctx context.Context, opts ...func(*Options)) (types.Requestor[T, U], types.Responder[T, U]) {
 	var o Options = defaults
 	for _, f := range opts {
 		f(&o)
@@ -45,7 +47,7 @@ func New[T any, U any](ctx context.Context, opts ...func(*Options)) (Requestor[T
 // ListenAndServe() will call handler for each request it receives.
 // Options allow hooks to be set for PreStart, to initialise with custom code; PostListen, to perform
 // custom processing when ListenAndServe() times out between requests; PostEnd, to perform custom cleanup
-func Go[T any, U any](ctx context.Context, handler func(context.Context, *T) (*U, error), opts ...func(*Options)) Requestor[T, U] {
+func Go[T any, U any](ctx context.Context, handler func(context.Context, *T) (*U, error), opts ...func(*Options)) types.Requestor[T, U] {
 	requestor, receiver := New[T, U](ctx, opts...)
 
 	o := defaults
