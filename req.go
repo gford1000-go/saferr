@@ -6,7 +6,7 @@ import (
 )
 
 func getIncrementer() func() uint64 {
-	var counter uint64 = 1 // So that 0 indicates req.id is unset
+	var counter uint64 = 0 // 0 indicates req.id is unset, so the func will always return a value in the range [1, MaxUint64)
 	var counterLck sync.Mutex
 
 	return func() uint64 {
