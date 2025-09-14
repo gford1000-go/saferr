@@ -31,40 +31,38 @@ type req[T any, U any] struct {
 // Since we expect a lot of traffic between Requestors and Responders,
 // use pools to minimise object creation
 type reqPool[T any, U any] struct {
-	incrementer func() uint64
-	chanPool    *correlatedChanPool[U]
-	pool        sync.Pool
-}
-
-// Get is a slight variance to idiomatic Go for sync.Pool,
-// returning fully initialised req[T, U] instance
-func (p *reqPool[T, U]) Get(t *T) *req[T, U] {
-	r := p.pool.Get().(*req[T, U])
-
-	// Initialise with the data for the request, plus a unique id for that request
-	r.id = p.incrementer()
-	r.data = t
-	r.c = p.chanPool.Get(r.id)
-	return r
-}
-
-// Put ensures that the returned instance is reset before reuse
-func (p *reqPool[T, U]) Put(x *req[T, U]) {
-	// Ensure reset of instance (including chan closing) before handing back to the pool
-	p.chanPool.Put(x.c)
-	x.data, x.c, x.id = nil, nil, 0
-	p.pool.Put(x)
+	Get func(t *T) *req[T, U]
+	Put func(x *req[T, U])
 }
 
 func newReqPool[T any, U any](c *correlatedChanPool[U], incrementer func() uint64) *reqPool[T, U] {
-	return &reqPool[T, U]{
-		incrementer: incrementer,
-		chanPool:    c,
-		pool: sync.Pool{
-			New: func() any {
-				var v any = new(req[T, U])
-				return v
-			},
+	p := sync.Pool{
+		New: func() any {
+			var v any = new(req[T, U])
+			return v
 		},
+	}
+
+	// Initialise with the data for the request, plus a unique id for that request
+	getter := func(t *T) *req[T, U] {
+		r := p.Get().(*req[T, U])
+
+		r.id = incrementer()
+		r.data = t
+		r.c = c.Get(r.id)
+
+		return r
+	}
+
+	// Ensure reset of instance (and chan return to its pool) before handing the instance back to the pool
+	putter := func(x *req[T, U]) {
+		c.Put(x.c)
+		x.data, x.c, x.id = nil, nil, 0
+		p.Put(x)
+	}
+
+	return &reqPool[T, U]{
+		Get: getter,
+		Put: putter,
 	}
 }
